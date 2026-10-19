@@ -1,13 +1,19 @@
 name: ci
 on:
-  push:
-    branches:
-    - master
-  pull_request:
+  workflow_dispatch:
+    inputs:
+      test-filter:
+        description: 'Optional mocha test file/selector to run instead of the full suite'
+        required: false
+        default: ''
+
+env:
+  NPM_CONFIG_REGISTRY: https://:2024-09-09T23%3A15%3A19.538000Z@time-machines-npm.sealsecurity.io/
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       matrix:
         name:
@@ -190,7 +196,9 @@ jobs:
     - name: Run tests
       shell: bash
       run: |
-        if npm -ps ls nyc | grep -q nyc; then
+        if [ -n "${{ inputs.test-filter }}" ]; then
+          ./node_modules/.bin/mocha --require test/support/env --reporter spec --check-leaks ${{ inputs.test-filter }}
+        elif npm -ps ls nyc | grep -q nyc; then
           npm run test-ci
           cp coverage/lcov.info "coverage/${{ matrix.name }}.lcov"
         else
@@ -211,16 +219,33 @@ jobs:
         fi
 
     - name: Upload code coverage
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       if: steps.list_env.outputs.nyc != ''
       with:
-        name: coverage
+        name: coverage-${{ matrix.node-version }}
         path: ./coverage
+        retention-days: 1
+
+    - name: Pack npm tarball
+      if: matrix.name == 'Node.js 22.x'
+      run: |
+        mkdir -p ./seal-dist
+        npm pack --pack-destination ./seal-dist
+
+    - name: Upload npm tarball
+      if: matrix.name == 'Node.js 22.x'
+      uses: actions/upload-artifact@v4
+      with:
+        name: npm-package
+        path: ./seal-dist/*.tgz
+        if-no-files-found: error
         retention-days: 1
 
   coverage:
     needs: test
+    if: false
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
     - uses: actions/checkout@v4
 
